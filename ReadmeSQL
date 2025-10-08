@@ -1,0 +1,416 @@
+-- Enable pgcrypto for UUID generation
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+----------------------------
+-- 1. Profiles
+----------------------------
+CREATE TABLE public.profiles (
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  full_name TEXT,
+  avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Create function to update timestamps
+CREATE OR REPLACE FUNCTION public.update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Automatically update timestamp for profiles
+CREATE TRIGGER update_profiles_updated_at
+BEFORE UPDATE ON public.profiles
+FOR EACH ROW
+EXECUTE FUNCTION public.update_updated_at_column();
+
+----------------------------
+-- 2. Organizations
+----------------------------
+CREATE TABLE public.organizations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE,
+  owner_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE UNIQUE INDEX organizations_slug_idx ON public.organizations(slug);
+
+-- Automatically update timestamp for organizations
+CREATE TRIGGER update_organizations_updated_at
+BEFORE UPDATE ON public.organizations
+FOR EACH ROW
+EXECUTE FUNCTION public.update_updated_at_column();
+
+----------------------------
+-- 3. Organization Members
+----------------------------
+CREATE TABLE public.organization_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (organization_id, user_id)
+);
+
+CREATE INDEX org_members_org_id_idx ON public.organization_members(organization_id);
+CREATE INDEX org_members_user_id_idx ON public.organization_members(user_id);
+
+----------------------------
+-- 4. Organization Invites
+----------------------------
+CREATE TABLE public.organization_invites (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  inviter_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
+  email TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('admin', 'member')),
+  token TEXT UNIQUE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX org_invites_org_id_idx ON public.organization_invites(organization_id);
+CREATE INDEX org_invites_email_idx ON public.organization_invites(email);
+
+----------------------------
+-- 5. Teams
+----------------------------
+CREATE TABLE public.teams (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  slug TEXT,
+  description TEXT,
+  created_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (organization_id, name)
+);
+
+CREATE INDEX teams_org_id_idx ON public.teams(organization_id);
+
+-- Automatically update timestamp for teams
+CREATE TRIGGER update_teams_updated_at
+BEFORE UPDATE ON public.teams
+FOR EACH ROW
+EXECUTE FUNCTION public.update_updated_at_column();
+
+----------------------------
+-- 6. Team Members
+----------------------------
+CREATE TABLE public.team_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  team_id UUID NOT NULL REFERENCES public.teams(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  role TEXT DEFAULT 'member',
+  added_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE (team_id, user_id)
+);
+
+CREATE INDEX team_members_team_id_idx ON public.team_members(team_id);
+CREATE INDEX team_members_user_id_idx ON public.team_members(user_id);
+
+----------------------------
+-- 7. Activity Log
+----------------------------
+CREATE TABLE public.activity_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+  actor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  action TEXT NOT NULL,
+  action_type TEXT,
+  metadata JSONB,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX activity_log_org_id_idx ON public.activity_log(organization_id);
+
+----------------------------
+-- 8. Trigger: Auto-create profile on signup
+----------------------------
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, full_name, avatar_url)
+  VALUES (NEW.id, NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'avatar_url');
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_new_user();
+
+----------------------------
+-- 9. RLS Policies
+----------------------------
+
+-- Enable RLS
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_invites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activity_log ENABLE ROW LEVEL SECURITY;
+
+----------------------------
+-- Profiles RLS
+----------------------------
+CREATE POLICY "Users can view their own profile"
+  ON public.profiles
+  FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can update their own profile"
+  ON public.profiles
+  FOR UPDATE
+  USING (auth.uid() = id);
+
+----------------------------
+-- Organizations RLS
+----------------------------
+CREATE POLICY "Users can view orgs they belong to"
+  ON public.organizations
+  FOR SELECT
+  USING (
+    id IN (
+      SELECT organization_id FROM public.organization_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can insert orgs"
+  ON public.organizations
+  FOR INSERT
+  WITH CHECK (auth.uid() = owner_id);
+
+CREATE POLICY "Owners can update their org"
+  ON public.organizations
+  FOR UPDATE
+  USING (owner_id = auth.uid());
+
+----------------------------
+-- Organization Members RLS
+----------------------------
+CREATE POLICY "Users can view members of their org"
+  ON public.organization_members
+  FOR SELECT
+  USING (
+    organization_id IN (
+      SELECT organization_id FROM public.organization_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins/Owners can insert org members"
+  ON public.organization_members
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+CREATE POLICY "Admins/Owners can update org members"
+  ON public.organization_members
+  FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+CREATE POLICY "Admins/Owners can delete org members"
+  ON public.organization_members
+  FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+----------------------------
+-- Teams RLS
+----------------------------
+CREATE POLICY "Users can view teams of their org"
+  ON public.teams
+  FOR SELECT
+  USING (
+    organization_id IN (
+      SELECT organization_id FROM public.organization_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins/Owners can insert teams"
+  ON public.teams
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+CREATE POLICY "Admins/Owners can update teams"
+  ON public.teams
+  FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+CREATE POLICY "Admins/Owners can delete teams"
+  ON public.teams
+  FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+----------------------------
+-- Team Members RLS
+----------------------------
+CREATE POLICY "Users can view team members in their org"
+  ON public.team_members
+  FOR SELECT
+  USING (
+    team_id IN (
+      SELECT t.id
+      FROM public.teams t
+      JOIN public.organization_members om
+      ON om.organization_id = t.organization_id
+      WHERE om.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins/Owners can insert team members"
+  ON public.team_members
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      JOIN public.teams t ON t.organization_id = om.organization_id
+      WHERE om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+      AND t.id = team_id
+    )
+  );
+
+CREATE POLICY "Admins/Owners can update team members"
+  ON public.team_members
+  FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      JOIN public.teams t ON t.organization_id = om.organization_id
+      WHERE om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+      AND t.id = team_id
+    )
+  );
+
+CREATE POLICY "Admins/Owners can delete team members"
+  ON public.team_members
+  FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      JOIN public.teams t ON t.organization_id = om.organization_id
+      WHERE om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+      AND t.id = team_id
+    )
+  );
+
+----------------------------
+-- Activity Log RLS
+----------------------------
+CREATE POLICY "Users can view activity logs of their org"
+  ON public.activity_log
+  FOR SELECT
+  USING (
+    organization_id IN (
+      SELECT organization_id FROM public.organization_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+----------------------------
+-- Organization Invites RLS
+----------------------------
+CREATE POLICY "Admins/Owners can view invites for their org"
+  ON public.organization_invites
+  FOR SELECT
+  USING (
+    organization_id IN (
+      SELECT organization_id FROM public.organization_members
+      WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins/Owners can insert invites"
+  ON public.organization_invites
+  FOR INSERT
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+CREATE POLICY "Admins/Owners can update invites"
+  ON public.organization_invites
+  FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
+
+CREATE POLICY "Admins/Owners can delete invites"
+  ON public.organization_invites
+  FOR DELETE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.organization_members om
+      WHERE om.organization_id = organization_id
+      AND om.user_id = auth.uid()
+      AND om.role IN ('owner', 'admin')
+    )
+  );
