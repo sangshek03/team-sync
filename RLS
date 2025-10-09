@@ -1,0 +1,318 @@
+-- ====================================
+-- DROP EXISTING POLICIES
+-- ====================================
+DROP POLICY IF EXISTS "Users can view their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can update their own profile" ON public.profiles;
+DROP POLICY IF EXISTS "Users can view orgs they belong to" ON public.organizations;
+DROP POLICY IF EXISTS "Users can insert orgs" ON public.organizations;
+DROP POLICY IF EXISTS "Owners can update their org" ON public.organizations;
+DROP POLICY IF EXISTS "Users can view members of their org" ON public.organization_members;
+DROP POLICY IF EXISTS "Admins/Owners can insert org members" ON public.organization_members;
+DROP POLICY IF EXISTS "Admins/Owners can update org members" ON public.organization_members;
+DROP POLICY IF EXISTS "Admins/Owners can delete org members" ON public.organization_members;
+DROP POLICY IF EXISTS "Users can view teams of their org" ON public.teams;
+DROP POLICY IF EXISTS "Admins/Owners can insert teams" ON public.teams;
+DROP POLICY IF EXISTS "Admins/Owners can update teams" ON public.teams;
+DROP POLICY IF EXISTS "Admins/Owners can delete teams" ON public.teams;
+DROP POLICY IF EXISTS "Users can view team members in their org" ON public.team_members;
+DROP POLICY IF EXISTS "Admins/Owners can insert team members" ON public.team_members;
+DROP POLICY IF EXISTS "Admins/Owners can update team members" ON public.team_members;
+DROP POLICY IF EXISTS "Admins/Owners can delete team members" ON public.team_members;
+DROP POLICY IF EXISTS "Users can view activity logs of their org" ON public.activity_log;
+DROP POLICY IF EXISTS "Admins/Owners can view invites for their org" ON public.organization_invites;
+DROP POLICY IF EXISTS "Admins/Owners can insert invites" ON public.organization_invites;
+DROP POLICY IF EXISTS "Admins/Owners can update invites" ON public.organization_invites;
+DROP POLICY IF EXISTS "Admins/Owners can delete invites" ON public.organization_invites;
+
+-- ====================================
+-- CREATE SECURITY DEFINER FUNCTIONS
+-- ====================================
+
+-- Get all organizations for a user (bypasses RLS)
+CREATE OR REPLACE FUNCTION public.get_user_org_ids(user_id UUID)
+RETURNS TABLE(organization_id UUID)
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT organization_id 
+  FROM public.organization_members
+  WHERE organization_members.user_id = user_id;
+$$;
+
+-- Check if user is admin or owner of an organization
+CREATE OR REPLACE FUNCTION public.is_org_admin_or_owner(
+  org_id UUID,
+  user_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT EXISTS(
+    SELECT 1 FROM public.organization_members
+    WHERE organization_id = org_id
+    AND user_id = user_id
+    AND role IN ('owner', 'admin')
+  );
+$$;
+
+-- Check if user belongs to an organization
+CREATE OR REPLACE FUNCTION public.is_org_member(
+  org_id UUID,
+  user_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT EXISTS(
+    SELECT 1 FROM public.organization_members
+    WHERE organization_id = org_id
+    AND user_id = user_id
+  );
+$$;
+
+-- Check if user is admin or owner of a team
+CREATE OR REPLACE FUNCTION public.is_team_admin(
+  team_id UUID,
+  user_id UUID
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+  SELECT EXISTS(
+    SELECT 1 FROM public.organization_members om
+    JOIN public.teams t ON t.organization_id = om.organization_id
+    WHERE om.user_id = user_id
+    AND om.role IN ('owner', 'admin')
+    AND t.id = team_id
+  );
+$$;
+
+-- ====================================
+-- ENABLE RLS
+-- ====================================
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.organization_invites ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.activity_log ENABLE ROW LEVEL SECURITY;
+
+-- ====================================
+-- PROFILES RLS
+-- ====================================
+CREATE POLICY "Users can view their own profile"
+  ON public.profiles
+  FOR SELECT
+  USING (auth.uid() = id);
+
+CREATE POLICY "Users can update their own profile"
+  ON public.profiles
+  FOR UPDATE
+  USING (auth.uid() = id)
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can insert their own profile"
+  ON public.profiles
+  FOR INSERT
+  WITH CHECK (auth.uid() = id);
+
+CREATE POLICY "Users can delete their own profile"
+  ON public.profiles
+  FOR DELETE
+  USING (auth.uid() = id);
+
+-- ====================================
+-- ORGANIZATIONS RLS
+-- ====================================
+CREATE POLICY "Users can view orgs they belong to"
+  ON public.organizations
+  FOR SELECT
+  USING (
+    id IN (SELECT organization_id FROM public.get_user_org_ids(auth.uid()))
+  );
+
+CREATE POLICY "Users can insert orgs"
+  ON public.organizations
+  FOR INSERT
+  WITH CHECK (auth.uid() = owner_id);
+
+CREATE POLICY "Owners can update their org"
+  ON public.organizations
+  FOR UPDATE
+  USING (owner_id = auth.uid())
+  WITH CHECK (owner_id = auth.uid());
+
+CREATE POLICY "Owners can delete their org"
+  ON public.organizations
+  FOR DELETE
+  USING (owner_id = auth.uid());
+
+-- ====================================
+-- ORGANIZATION MEMBERS RLS
+-- ====================================
+CREATE POLICY "Users can view members of their org"
+  ON public.organization_members
+  FOR SELECT
+  USING (
+    public.is_org_member(organization_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can insert org members"
+  ON public.organization_members
+  FOR INSERT
+  WITH CHECK (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can update org members"
+  ON public.organization_members
+  FOR UPDATE
+  USING (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  )
+  WITH CHECK (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can delete org members"
+  ON public.organization_members
+  FOR DELETE
+  USING (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+-- ====================================
+-- TEAMS RLS
+-- ====================================
+CREATE POLICY "Users can view teams of their org"
+  ON public.teams
+  FOR SELECT
+  USING (
+    organization_id IN (SELECT organization_id FROM public.get_user_org_ids(auth.uid()))
+  );
+
+CREATE POLICY "Admins/Owners can insert teams"
+  ON public.teams
+  FOR INSERT
+  WITH CHECK (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can update teams"
+  ON public.teams
+  FOR UPDATE
+  USING (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  )
+  WITH CHECK (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can delete teams"
+  ON public.teams
+  FOR DELETE
+  USING (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+-- ====================================
+-- TEAM MEMBERS RLS
+-- ====================================
+CREATE POLICY "Users can view team members in their org"
+  ON public.team_members
+  FOR SELECT
+  USING (
+    public.is_team_admin(team_id, auth.uid()) OR
+    team_id IN (
+      SELECT tm.team_id
+      FROM public.team_members tm
+      WHERE tm.user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Admins/Owners can insert team members"
+  ON public.team_members
+  FOR INSERT
+  WITH CHECK (
+    public.is_team_admin(team_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can update team members"
+  ON public.team_members
+  FOR UPDATE
+  USING (
+    public.is_team_admin(team_id, auth.uid())
+  )
+  WITH CHECK (
+    public.is_team_admin(team_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can delete team members"
+  ON public.team_members
+  FOR DELETE
+  USING (
+    public.is_team_admin(team_id, auth.uid())
+  );
+
+-- ====================================
+-- ACTIVITY LOG RLS
+-- ====================================
+CREATE POLICY "Users can view activity logs of their org"
+  ON public.activity_log
+  FOR SELECT
+  USING (
+    organization_id IN (SELECT organization_id FROM public.get_user_org_ids(auth.uid()))
+  );
+
+CREATE POLICY "Anyone can insert activity logs"
+  ON public.activity_log
+  FOR INSERT
+  WITH CHECK (true);
+
+-- ====================================
+-- ORGANIZATION INVITES RLS
+-- ====================================
+CREATE POLICY "Admins/Owners can view invites for their org"
+  ON public.organization_invites
+  FOR SELECT
+  USING (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+-- Fixed: Removed WITH CHECK from SELECT policy
+CREATE POLICY "Users can view invites sent to them"
+  ON public.organization_invites
+  FOR SELECT
+  USING (email = auth.jwt() ->> 'email');
+
+CREATE POLICY "Admins/Owners can insert invites"
+  ON public.organization_invites
+  FOR INSERT
+  WITH CHECK (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can update invites"
+  ON public.organization_invites
+  FOR UPDATE
+  USING (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  )
+  WITH CHECK (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
+
+CREATE POLICY "Admins/Owners can delete invites"
+  ON public.organization_invites
+  FOR DELETE
+  USING (
+    public.is_org_admin_or_owner(organization_id, auth.uid())
+  );
