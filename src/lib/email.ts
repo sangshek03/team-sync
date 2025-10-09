@@ -20,7 +20,7 @@ class EmailService {
     role: string,
     token: string
   ) {
-    const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/invite/accept?token=${token}&email=${email}&password=${password}`;
+    const loginUrl = `${process.env.NEXT_PUBLIC_APP_URL}`;
 
     const mailOptions = {
       from: 'vidyaleap.i4c@gmail.com',
