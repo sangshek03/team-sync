@@ -5,7 +5,7 @@ import { AuthCookie } from '@/types/auth';
 interface OrganizationMembersResponse {
   success: boolean;
   message: string;
-  data?: any[];
+  data?: unknown[];
 }
 
 export async function GET(request: NextRequest) {

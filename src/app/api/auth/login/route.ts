@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get user's organization membership and role
-    const { data: membership, error: membershipError } = await supabase
+    const { data: membership } = await supabase
       .from('organization_members')
       .select('role, organization_id')
       .eq('user_id', profile_id)

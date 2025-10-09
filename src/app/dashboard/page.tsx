@@ -43,7 +43,7 @@ export default function DashboardPage() {
 
         const data = await response.json();
         setUserData(data.data);
-      } catch (error) {
+      } catch (_error) {
         router.push('/login');
       } finally {
         setLoading(false);

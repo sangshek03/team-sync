@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
 
     const profile_id = authData.user.id;
 
-    const {data: profile} = await supabase
+    await supabase
       .from('profiles')
       .insert({
         id: profile_id,

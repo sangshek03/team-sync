@@ -68,7 +68,7 @@ export default function OwnerView({ profileId, onCreateOrg, onInvite, refreshTri
     };
 
     fetchOrganizations();
-  }, [refreshTrigger]);
+  }, [refreshTrigger, selectedOrgId]);
 
   useEffect(() => {
     const fetchOrgData = async () => {

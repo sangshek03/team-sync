@@ -33,7 +33,7 @@ export default function CreateOrganizationModal({ onClose, onSuccess, onError }:
       } else {
         onError(data.message || 'Failed to create organization');
       }
-    } catch (err) {
+    } catch (_err) {
       onError('An error occurred. Please try again.');
     } finally {
       setLoading(false);

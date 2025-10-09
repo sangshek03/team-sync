@@ -11,7 +11,7 @@ interface CreateTeamPayload {
 interface TeamResponse {
     success: boolean
     message: string
-    data?: any
+    data?: unknown
 }
 
 export async function GET(request: NextRequest) {

@@ -69,7 +69,7 @@ export default function InviteMembersModal({ onClose, onSuccess, onError, userRo
       } else {
         onError(data.message || 'Failed to send invitation');
       }
-    } catch (err) {
+    } catch (_err) {
       onError('An error occurred. Please try again.');
     } finally {
       setLoading(false);

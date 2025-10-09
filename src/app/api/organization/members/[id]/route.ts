@@ -9,7 +9,7 @@ interface UpdateRolePayload {
 interface UpdateRoleResponse {
     success: boolean
     message: string
-    data?: any
+    data?: Record<string, unknown>
 }
 
 export async function PATCH(

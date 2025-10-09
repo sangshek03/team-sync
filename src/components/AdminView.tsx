@@ -164,7 +164,7 @@ export default function AdminView({ organizationId, profileId, onCreateTeam, onI
       } else {
         setToast({ message: data.message || 'Failed to change role', type: 'error' });
       }
-    } catch (error) {
+    } catch (_error) {
       setToast({ message: 'An error occurred while changing role', type: 'error' });
     } finally {
       setShowConfirmModal(false);
@@ -419,7 +419,7 @@ export default function AdminView({ organizationId, profileId, onCreateTeam, onI
             {/* Body */}
             <div className="p-6 space-y-4">
               <p className="text-gray-800">
-                Are you sure you want to change <span className="font-semibold">{pendingRoleChange.memberName}</span>'s role from{' '}
+                Are you sure you want to change <span className="font-semibold">{pendingRoleChange.memberName}</span>&apos;s role from{' '}
                 <span className="font-semibold capitalize">{pendingRoleChange.oldRole}</span> to{' '}
                 <span className="font-semibold capitalize">{pendingRoleChange.newRole}</span>?
               </p>

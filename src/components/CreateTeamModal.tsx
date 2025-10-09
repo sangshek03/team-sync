@@ -38,7 +38,7 @@ export default function CreateTeamModal({
             } else {
                 onError(data.message || 'Failed to create team')
             }
-        } catch (err) {
+        } catch (_err) {
             onError('An error occurred. Please try again.')
         } finally {
             setLoading(false)
