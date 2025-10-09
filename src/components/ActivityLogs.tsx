@@ -65,6 +65,48 @@ export default function ActivityLogs({ organizationId }: ActivityLogsProps) {
     fetchLogs(false);
   };
 
+  const handleExportJSON = () => {
+    const dataStr = JSON.stringify(logs, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `activity-logs-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCSV = () => {
+    if (logs.length === 0) return;
+
+    // CSV headers
+    const headers = ['ID', 'Action', 'Action Type', 'Name', 'Role', 'Created At'];
+
+    // CSV rows
+    const rows = logs.map(log => [
+      log.id,
+      log.action.replace(/"/g, '""'), // Escape quotes
+      log.action_type,
+      log.metadata?.name || '',
+      log.metadata?.role || '',
+      log.created_at,
+    ]);
+
+    // Combine headers and rows
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const dataBlob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `activity-logs-${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -126,26 +168,52 @@ export default function ActivityLogs({ organizationId }: ActivityLogsProps) {
     <div className="bg-white rounded-xl shadow-md p-6 h-[calc(100vh-12rem)] flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-semibold text-gray-800">Activity Logs</h2>
-        <button
-          onClick={handleManualRefresh}
-          disabled={loading}
-          className="p-2 rounded-full hover:bg-[#FCF9EA] transition-colors disabled:opacity-50"
-          title="Refresh"
-        >
-          <svg
-            className={`w-5 h-5 text-gray-600 ${refreshing ? 'animate-spin' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="flex items-center space-x-2">
+          {/* Export Buttons */}
+          <button
+            onClick={handleExportCSV}
+            disabled={logs.length === 0}
+            className="px-3 py-2 text-sm bg-[#FFA4A4] hover:bg-[#FFBDBD] text-white font-medium rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
+            title="Export as CSV"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-        </button>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>CSV</span>
+          </button>
+          <button
+            onClick={handleExportJSON}
+            disabled={logs.length === 0}
+            className="px-3 py-2 text-sm bg-[#FFA4A4] hover:bg-[#FFBDBD] text-white font-medium rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1"
+            title="Export as JSON"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span>JSON</span>
+          </button>
+          {/* Refresh Button */}
+          <button
+            onClick={handleManualRefresh}
+            disabled={loading}
+            className="p-2 rounded-full hover:bg-[#FCF9EA] transition-colors disabled:opacity-50"
+            title="Refresh"
+          >
+            <svg
+              className={`w-5 h-5 text-gray-600 ${refreshing ? 'animate-spin' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
       {loading ? (
