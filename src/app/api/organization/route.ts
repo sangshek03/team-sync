@@ -120,20 +120,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check how many orgs this user already belongs to
-    const { data: userOrgs } = await supabase
-      .from('organization_members')
-      .select('organization_id')
-      .eq('user_id', profile_id);
-
-    // Determine which client to use
-    const client =
-      !userOrgs || userOrgs.length === 0
-        ? createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.SUPABASE_SERVICE_ROLE_KEY! // use service role for first org
-          )
-        : supabase; // normal anon client otherwise
+    // Always use service role client for organization creation
+    // because RLS policies require auth.uid() which is not available with cookie auth
+    const client = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
     // Create organization
     const { data: organization, error: orgError } = await client

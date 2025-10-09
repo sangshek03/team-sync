@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 import { LoginPayload, AuthResponse, AuthCookie } from '@/types/auth';
 
 export async function POST(request: NextRequest) {
@@ -93,6 +94,22 @@ export async function POST(request: NextRequest) {
       maxAge: 60 * 60 * 24 * 7, // 7 days
       path: '/',
     });
+
+    // Log activity only if user belongs to an organization
+    if (organization_id) {
+      const serviceClient = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+
+      await serviceClient.from('activity_log').insert({
+        organization_id,
+        actor_id: profile_id,
+        action: `${profile.full_name} logged in`,
+        action_type: 'user.login',
+        metadata: { name: profile.full_name, role },
+      });
+    }
 
     return response;
   } catch (error) {

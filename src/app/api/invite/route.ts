@@ -333,6 +333,24 @@ export async function POST(request: NextRequest) {
                 inviteRole,
                 token
             )
+
+            // Log activity after successful email send
+            await serviceClient.from('activity_log').insert({
+                organization_id,
+                actor_id: profile_id,
+                action: `Invited ${name} as ${inviteRole}`,
+                action_type: 'user.invited',
+                metadata: { name, role: inviteRole },
+            })
+
+            return NextResponse.json<InviteResponse>(
+                {
+                    success: true,
+                    message: 'Invitation sent successfully',
+                    data: invite,
+                },
+                { status: 201 }
+            )
         } catch (emailError) {
             console.error('Email sending error:', emailError)
             // Don't rollback - invitation is created, just log the error
@@ -345,15 +363,6 @@ export async function POST(request: NextRequest) {
                 { status: 201 }
             )
         }
-
-        return NextResponse.json<InviteResponse>(
-            {
-                success: true,
-                message: 'Invitation sent successfully',
-                data: invite,
-            },
-            { status: 201 }
-        )
     } catch (error) {
         console.error('Create invite error:', error)
         return NextResponse.json<InviteResponse>(
