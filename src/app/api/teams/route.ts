@@ -26,7 +26,12 @@ export async function GET(request: NextRequest) {
         }
 
         const authCookie: AuthCookie = JSON.parse(authCookieValue);
-        const { organization_id } = authCookie;
+        const { organization_id: authOrgId } = authCookie;
+
+        // Get organization_id from query parameter (priority) or auth cookie (fallback)
+        const { searchParams } = new URL(request.url);
+        const queryOrgId = searchParams.get('organization_id');
+        const organization_id = queryOrgId || authOrgId;
 
         if (!organization_id) {
             return NextResponse.json<TeamResponse>(

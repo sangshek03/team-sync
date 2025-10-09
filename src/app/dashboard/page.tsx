@@ -27,6 +27,7 @@ export default function DashboardPage() {
   const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -102,6 +103,10 @@ export default function DashboardPage() {
     setRefreshTrigger(prev => prev + 1);
   };
 
+  const handleOrganizationChange = (orgId: string | null) => {
+    setSelectedOrgId(orgId);
+  };
+
   return (
     <div className="min-h-screen bg-[#FCF9EA]">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
@@ -133,6 +138,7 @@ export default function DashboardPage() {
                 onCreateOrg={() => setShowCreateOrgModal(true)}
                 onInvite={() => setShowInviteModal(true)}
                 refreshTrigger={refreshTrigger}
+                onOrganizationChange={handleOrganizationChange}
               />
             )}
 
@@ -156,7 +162,7 @@ export default function DashboardPage() {
 
           {/* Right Side - Activity Logs */}
           <div>
-            <ActivityLogs organizationId={userData.organization_id} />
+            <ActivityLogs organizationId={userData.role === 'owner' ? selectedOrgId : userData.organization_id} />
           </div>
         </div>
       </div>
@@ -188,7 +194,7 @@ export default function DashboardPage() {
             setToast({ message, type: 'error' });
           }}
           userRole={userData.role}
-          organizationId={userData.organization_id!}
+          organizationId={userData.role === 'owner' ? selectedOrgId! : userData.organization_id!}
         />
       )}
 

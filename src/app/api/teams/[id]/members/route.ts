@@ -10,9 +10,12 @@ interface TeamMembersResponse {
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Await params as per Next.js 15 requirement
+    const { id: teamId } = await params;
+
     const authCookieValue = request.cookies.get('auth-cookie')?.value;
 
     if (!authCookieValue) {
@@ -41,7 +44,7 @@ export async function GET(
     const { data: team, error: teamError } = await serviceClient
       .from('teams')
       .select('id, organization_id')
-      .eq('id', params.id)
+      .eq('id', teamId)
       .eq('organization_id', organization_id)
       .single();
 
@@ -66,7 +69,7 @@ export async function GET(
           avatar_url
         )
       `)
-      .eq('team_id', params.id)
+      .eq('team_id', teamId)
       .order('created_at', { ascending: false });
 
     if (error) {

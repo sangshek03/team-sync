@@ -69,6 +69,13 @@ export default function AdminView({ organizationId, profileId, onCreateTeam, onI
   const [invites, setInvites] = useState<Invite[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [pendingRoleChange, setPendingRoleChange] = useState<{
+    memberId: string;
+    oldRole: string;
+    newRole: string;
+    memberName: string;
+  } | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -125,7 +132,22 @@ export default function AdminView({ organizationId, profileId, onCreateTeam, onI
     fetchData();
   }, [organizationId, refreshTrigger]);
 
-  const handleRoleChange = async (memberId: string, newRole: string, memberName: string) => {
+  const handleRoleChangeRequest = (memberId: string, oldRole: string, newRole: string, memberName: string) => {
+    // If same role selected, do nothing
+    if (oldRole === newRole) {
+      return;
+    }
+
+    // Store pending change and show confirmation modal
+    setPendingRoleChange({ memberId, oldRole, newRole, memberName });
+    setShowConfirmModal(true);
+  };
+
+  const handleConfirmRoleChange = async () => {
+    if (!pendingRoleChange) return;
+
+    const { memberId, newRole, memberName } = pendingRoleChange;
+
     try {
       const response = await fetch(`/api/organization/members/${memberId}`, {
         method: 'PATCH',
@@ -144,7 +166,15 @@ export default function AdminView({ organizationId, profileId, onCreateTeam, onI
       }
     } catch (error) {
       setToast({ message: 'An error occurred while changing role', type: 'error' });
+    } finally {
+      setShowConfirmModal(false);
+      setPendingRoleChange(null);
     }
+  };
+
+  const handleCancelRoleChange = () => {
+    setShowConfirmModal(false);
+    setPendingRoleChange(null);
   };
 
   return (
@@ -327,7 +357,7 @@ export default function AdminView({ organizationId, profileId, onCreateTeam, onI
                           </div>
                           <select
                             value={member.role}
-                            onChange={(e) => handleRoleChange(member.id, e.target.value, member.profiles.full_name)}
+                            onChange={(e) => handleRoleChangeRequest(member.id, member.role, e.target.value, member.profiles.full_name)}
                             disabled={member.role === 'owner'}
                             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#FFA4A4] focus:border-transparent transition-all duration-200 outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                           >
@@ -376,6 +406,44 @@ export default function AdminView({ organizationId, profileId, onCreateTeam, onI
           )}
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && pendingRoleChange && (
+        <div className="fixed inset-0 bg-yellow-900/20 flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full transform transition-all duration-300 animate-slideUp">
+            {/* Header */}
+            <div className="bg-[#FFA4A4] text-white px-6 py-4 rounded-t-2xl">
+              <h2 className="text-xl font-bold">Confirm Role Change</h2>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4">
+              <p className="text-gray-800">
+                Are you sure you want to change <span className="font-semibold">{pendingRoleChange.memberName}</span>'s role from{' '}
+                <span className="font-semibold capitalize">{pendingRoleChange.oldRole}</span> to{' '}
+                <span className="font-semibold capitalize">{pendingRoleChange.newRole}</span>?
+              </p>
+
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={handleCancelRoleChange}
+                  className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold py-3 px-4 rounded-lg transition-all duration-300"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmRoleChange}
+                  className="flex-1 bg-[#FFA4A4] hover:bg-[#FFBDBD] text-white font-semibold py-3 px-4 rounded-lg transition-all duration-300 transform hover:scale-105"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

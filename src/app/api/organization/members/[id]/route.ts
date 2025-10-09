@@ -14,9 +14,12 @@ interface UpdateRoleResponse {
 
 export async function PATCH(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    { params }: { params: Promise<{ id: string }> }
 ) {
     try {
+        // Await params as per Next.js 15 requirement
+        const { id: memberId } = await params;
+
         // Get auth cookie
         const authCookieValue = request.cookies.get('auth-cookie')?.value
 
@@ -73,7 +76,7 @@ export async function PATCH(
         const { data: member, error: memberFetchError } = await serviceClient
             .from('organization_members')
             .select('*, profiles!organization_members_user_id_fkey(full_name)')
-            .eq('id', params.id)
+            .eq('id', memberId)
             .eq('organization_id', organization_id)
             .single()
 
@@ -124,7 +127,7 @@ export async function PATCH(
         const { error: updateError } = await serviceClient
             .from('organization_members')
             .update({ role: newRole })
-            .eq('id', params.id)
+            .eq('id', memberId)
             .eq('organization_id', organization_id)
 
         if (updateError) {
