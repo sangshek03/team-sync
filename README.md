@@ -1,6 +1,7 @@
 # Team Sync - Organization & Team Management System
 
 A full-stack Next.js application for managing organizations, teams, members, and tracking activities with role-based access control.
+https://drive.google.com/file/d/1-hPK3hyRfVUZm6GdvIPlNwg_ZIWz4QZh/view?usp=drive_link
 
 ## 🚀 Features
 
